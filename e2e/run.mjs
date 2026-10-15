@@ -13,6 +13,7 @@ const contentScript = readFileSync(join(root, 'content.js'), 'utf8');
 const COMPOSER = '[data-composer-input] [contenteditable="true"]';
 const USER_TURN = '[data-content-search-unit-key$=":user"]';
 const EDITOR = '[aria-label="Edit message"][contenteditable="true"]';
+const SIDEBAR_CHAT = 'nav[aria-label="Chat history"] a[href*="/c/"]';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cli = (...args) => execFileSync('node', [CDP, ...args], { encoding: 'utf8' }).trim();
@@ -170,6 +171,79 @@ const saveClippedScreenshot = async (file) => {
   writeFileSync(file, Buffer.from(data, 'base64'));
 };
 
+const sidebar = () =>
+  page(
+    (chatSel, composerSel) => {
+      const chats = [...document.querySelectorAll(chatSel)].filter((a) => a.getClientRects().length > 0);
+      const hrefOf = (a) => a && new URL(a.href).pathname;
+      return {
+        open: chats.length > 0,
+        chats: chats.map(hrefOf),
+        current: hrefOf(chats.find((a) => a.getAttribute('aria-current') === 'page')),
+        focused: hrefOf(document.activeElement?.closest?.(chatSel)),
+        path: location.pathname,
+        activeIsComposer: Boolean(document.activeElement?.matches?.(composerSel)) && document.activeElement.getClientRects().length > 0,
+        active: (({ tagName, id, className }) => `${tagName}#${id}.${String(className).slice(0, 40)}`)(document.activeElement ?? document.body),
+        lastKeydown: window.__keydowns.at(-1) ?? null,
+      };
+    },
+    SIDEBAR_CHAT,
+    COMPOSER,
+  );
+
+const setSidebar = async (open) => {
+  if ((await sidebar()).open === open) return;
+  await page((label) => {
+    [...document.querySelectorAll(`button[aria-label="${label}"]`)].find((b) => b.getClientRects().length > 0)?.click();
+    return true;
+  }, open ? 'Show sidebar' : 'Hide sidebar');
+  for (let i = 0; i < 20 && (await sidebar()).open !== open; i++) await sleep(100);
+};
+
+const SYNTHETIC = { 'ctrl+shift+j': 'J', 'ctrl+shift+k': 'K' };
+
+const press = (combo) =>
+  SYNTHETIC[combo]
+    ? page((key) => {
+        const init = { key, code: `Key${key}`, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true };
+        (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', init));
+        return true;
+      }, SYNTHETIC[combo])
+    : cdp('key', combo);
+
+const pressAndRead = async (combo) => {
+  const before = await sidebar();
+  const started = Date.now();
+  await press(combo);
+  let s = await sidebar();
+  while (s.focused === before.focused && s.open === before.open && Date.now() - started < 1500) {
+    await sleep(50);
+    s = await sidebar();
+  }
+  await sleep(100);
+  s = await sidebar();
+  return s;
+};
+
+let sidebarWasOpen = null;
+const closeSidebarForTest = async () => {
+  sidebarWasOpen ??= (await sidebar()).open;
+  await setSidebar(false);
+};
+
+const saveSidebarScreenshot = async (file) => {
+  const rect = await page(() => {
+    const r = document.querySelector('nav[aria-label="Chat history"]').getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: Math.min(r.height, innerHeight) };
+  });
+  const { zoom } = (await raw('Page.getLayoutMetrics')).cssVisualViewport;
+  const { data } = await raw('Page.captureScreenshot', {
+    format: 'png',
+    clip: { x: rect.x * zoom, y: rect.y * zoom, width: rect.width * zoom, height: rect.height * zoom, scale: 1 },
+  });
+  writeFileSync(file, Buffer.from(data, 'base64'));
+};
+
 const scenarios = [
   {
     name: 'empty composer: ArrowUp opens the last message in edit mode',
@@ -279,6 +353,69 @@ const scenarios = [
   },
 
   {
+    name: 'sidebar: Ctrl+Shift+J/K and arrows move through chats, Escape returns to the composer',
+    async run() {
+      const S = 'sidebar-move';
+      await closeSidebarForTest();
+      await cdp('click', COMPOSER);
+      const first = await pressAndRead('ctrl+shift+arrowdown');
+      check(S, 'first press opens the collapsed sidebar', first.open);
+      check(S, 'first press focuses the current chat', first.focused && first.focused === first.current, `focused=${first.focused} current=${first.current}`);
+      check(S, 'keydown was default-prevented', first.lastKeydown?.defaultPrevented === true);
+      const i = first.chats.indexOf(first.current);
+      const at = (n) => first.chats[Math.min(Math.max(n, 0), first.chats.length - 1)];
+      const steps = [
+        ['ctrl+shift+j', i + 1],
+        ['ctrl+shift+arrowdown', i + 2],
+        ['ctrl+shift+k', i + 1],
+        ['ctrl+shift+arrowup', i],
+      ];
+      for (const [combo, n] of steps) {
+        const s = await pressAndRead(combo);
+        check(S, `${combo} focuses chat #${Math.max(n, 0)}`, s.focused === at(n), `got ${s.focused} want ${at(n)}`);
+      }
+      for (let n = i; n >= 0; n--) await cdp('key', 'ctrl+shift+arrowup');
+      const top = await pressAndRead('ctrl+shift+arrowup');
+      check(S, 'stops at the first chat', top.focused === first.chats[0], `got ${top.focused}`);
+      await pressAndRead('ctrl+shift+arrowdown');
+      mkdirSync(outDir, { recursive: true });
+      await saveSidebarScreenshot(join(outDir, 'sidebar-focus.png'));
+      const esc = await pressAndRead('Escape');
+      check(S, 'Escape focuses the composer', esc.activeIsComposer);
+      check(S, 'Escape closes the sidebar it opened', !esc.open);
+      check(S, 'Escape does not navigate', esc.path === first.path, `path=${esc.path}`);
+      await cdp('type', 'j');
+      check(S, 'plain j still types in the composer', (await snapshot()).composerText === 'j');
+      await clearFocusedField();
+    },
+  },
+
+  {
+    name: 'sidebar: Enter opens the focused chat',
+    async run() {
+      const S = 'sidebar-enter';
+      await closeSidebarForTest();
+      await cdp('click', COMPOSER);
+      const first = await pressAndRead('ctrl+shift+arrowdown');
+      const picked = await pressAndRead('ctrl+shift+arrowdown');
+      check(S, 'precondition: a different chat is focused', picked.focused && picked.focused !== first.path, `focused=${picked.focused}`);
+      await cdp('key', 'Enter');
+      let s;
+      for (let n = 0; n < 40; n++) {
+        await sleep(200);
+        s = await sidebar();
+        if (s.path === picked.focused && s.activeIsComposer) break;
+      }
+      loaded = null;
+      check(S, 'navigates to the focused chat', s.path === picked.focused, `path=${s.path}`);
+      const failedToLoad = await page(() => document.body.innerText.includes('Could not load this ChatGPT conversation'));
+      check(S, 'the opened chat loaded', !failedToLoad, 'ChatGPT rate-limited the conversation fetch, wait a few minutes and rerun');
+      check(S, 'focuses the composer of the opened chat', s.activeIsComposer, `active=${s.active}`);
+      check(S, 'closes the sidebar it opened', !s.open);
+    },
+  },
+
+  {
     name: 'new chat with no messages: ArrowUp is a no-op',
     url: NEW_CHAT_URL,
     async run() {
@@ -322,6 +459,8 @@ try {
       check(name, 'scenario ran to completion', false, error.message.split('\n')[0]);
     }
   }
+
+  if (sidebarWasOpen) await setSidebar(true);
 
   const failed = results.filter((r) => !r.ok);
   mkdirSync(outDir, { recursive: true });
