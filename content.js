@@ -112,6 +112,8 @@
       when: (e) => isEmptyComposer(e.target) && Boolean(lastUserTurn()),
       run: editLastMessage,
     },
+    { code: 'KeyJ', mods: ['ctrlKey', 'metaKey'], run: moveInSidebar(1) },
+    { code: 'KeyK', mods: ['ctrlKey', 'metaKey'], run: moveInSidebar(-1) },
     { code: 'KeyJ', mods: SIDEBAR_MODS, run: moveInSidebar(1) },
     { code: 'KeyK', mods: SIDEBAR_MODS, run: moveInSidebar(-1) },
     { key: 'ArrowDown', mods: SIDEBAR_MODS, run: moveInSidebar(1) },

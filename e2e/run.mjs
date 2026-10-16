@@ -353,29 +353,31 @@ const scenarios = [
   },
 
   {
-    name: 'sidebar: Ctrl+Shift+J/K and arrows move through chats, Escape returns to the composer',
+    name: 'sidebar: Ctrl+Cmd+J/K, Ctrl+Shift+arrows and Ctrl+Shift+J/K move through chats, Escape returns to the composer',
     async run() {
       const S = 'sidebar-move';
       await closeSidebarForTest();
       await cdp('click', COMPOSER);
-      const first = await pressAndRead('ctrl+shift+arrowdown');
+      const first = await pressAndRead('ctrl+meta+j');
       check(S, 'first press opens the collapsed sidebar', first.open);
       check(S, 'first press focuses the current chat', first.focused && first.focused === first.current, `focused=${first.focused} current=${first.current}`);
       check(S, 'keydown was default-prevented', first.lastKeydown?.defaultPrevented === true);
       const i = first.chats.indexOf(first.current);
       const at = (n) => first.chats[Math.min(Math.max(n, 0), first.chats.length - 1)];
       const steps = [
-        ['ctrl+shift+j', i + 1],
+        ['ctrl+meta+j', i + 1],
         ['ctrl+shift+arrowdown', i + 2],
-        ['ctrl+shift+k', i + 1],
+        ['ctrl+meta+k', i + 1],
         ['ctrl+shift+arrowup', i],
+        ['ctrl+shift+j', i + 1],
+        ['ctrl+shift+k', i],
       ];
       for (const [combo, n] of steps) {
         const s = await pressAndRead(combo);
         check(S, `${combo} focuses chat #${Math.max(n, 0)}`, s.focused === at(n), `got ${s.focused} want ${at(n)}`);
       }
-      for (let n = i; n >= 0; n--) await cdp('key', 'ctrl+shift+arrowup');
-      const top = await pressAndRead('ctrl+shift+arrowup');
+      for (let n = i; n >= 0; n--) await cdp('key', 'ctrl+meta+k');
+      const top = await pressAndRead('ctrl+meta+k');
       check(S, 'stops at the first chat', top.focused === first.chats[0], `got ${top.focused}`);
       await pressAndRead('ctrl+shift+arrowdown');
       mkdirSync(outDir, { recursive: true });
@@ -396,8 +398,8 @@ const scenarios = [
       const S = 'sidebar-enter';
       await closeSidebarForTest();
       await cdp('click', COMPOSER);
-      const first = await pressAndRead('ctrl+shift+arrowdown');
-      const picked = await pressAndRead('ctrl+shift+arrowdown');
+      const first = await pressAndRead('ctrl+meta+j');
+      const picked = await pressAndRead('ctrl+meta+j');
       check(S, 'precondition: a different chat is focused', picked.focused && picked.focused !== first.path, `focused=${picked.focused}`);
       await cdp('key', 'Enter');
       let s;

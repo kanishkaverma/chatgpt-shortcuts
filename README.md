@@ -17,30 +17,14 @@ A Manifest V3 Chrome extension that adds keyboard shortcuts to https://chatgpt.c
 | Keys | When | What it does |
 | --- | --- | --- |
 | `ArrowUp` | The composer is focused and empty | Opens your last sent message in edit mode and puts the caret at the end. |
-| `Ctrl+Shift+J` or `Ctrl+Shift+↓` | Anywhere | Moves to the next chat in the sidebar. The first press opens the sidebar if it is collapsed and lands on the chat you are in. |
-| `Ctrl+Shift+K` or `Ctrl+Shift+↑` | Anywhere | Moves to the previous chat in the sidebar. |
+| `Ctrl+Cmd+J`, `Ctrl+Shift+↓` or `Ctrl+Shift+J` | Anywhere | Moves to the next chat in the sidebar. The first press opens the sidebar if it is collapsed and lands on the chat you are in. |
+| `Ctrl+Cmd+K`, `Ctrl+Shift+↑` or `Ctrl+Shift+K` | Anywhere | Moves to the previous chat in the sidebar. |
 | `Enter` | A sidebar chat is focused | Opens that chat, closes the sidebar if the shortcut opened it, and puts the cursor in the composer. |
 | `Escape` | A sidebar chat is focused | Goes back to the composer and closes the sidebar if the shortcut opened it. |
 
 The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first, then Recents. They stop at the first and last chat.
 
-In Helium, `Ctrl+J` and `Ctrl+K` never reach the page, with or without Shift. To keep the vim keys, remap them before the browser sees them. This [Karabiner-Elements](https://karabiner-elements.pqrs.org/) rule turns `Ctrl+Shift+J/K` into `Ctrl+Shift+↓/↑` only while Helium or Chrome is in front. Add it to `complex_modifications.rules` in `~/.config/karabiner/karabiner.json`.
-
-```json
-{
-  "description": "Browsers: Ctrl+Shift+J/K to Ctrl+Shift+Down/Up (ChatGPT Shortcuts sidebar)",
-  "manipulators": [
-    { "type": "basic",
-      "from": { "key_code": "j", "modifiers": { "mandatory": ["control", "shift"] } },
-      "to": [{ "key_code": "down_arrow", "modifiers": ["left_control", "left_shift"] }],
-      "conditions": [{ "type": "frontmost_application_if", "bundle_identifiers": ["^net\\.imput\\.helium$", "^com\\.google\\.Chrome$"] }] },
-    { "type": "basic",
-      "from": { "key_code": "k", "modifiers": { "mandatory": ["control", "shift"] } },
-      "to": [{ "key_code": "up_arrow", "modifiers": ["left_control", "left_shift"] }],
-      "conditions": [{ "type": "frontmost_application_if", "bundle_identifiers": ["^net\\.imput\\.helium$", "^com\\.google\\.Chrome$"] }] }
-  ]
-}
-```
+`Ctrl+Cmd+J/K` is the main vim binding because it reaches the page in every browser tested. Helium swallows `Ctrl+J` and `Ctrl+K` before the page sees them, with or without Shift, so `Ctrl+Shift+J/K` only works in browsers that pass it through.
 
 `ArrowUp` is left alone when the composer has text, when any of Ctrl, Cmd, Alt or Shift is held, while an IME is composing, when the thread has no user messages, and inside an edit field. If your last message is already being edited, `ArrowUp` refocuses that edit field instead of opening the previous message.
 
@@ -95,14 +79,14 @@ It checks eight behaviors.
 - ArrowUp when the last message is already in edit mode refocuses it and does not open the previous message.
 - ArrowUp inside an empty edit field does nothing.
 - ArrowUp on a new chat with no messages is a no-op and is not default-prevented.
-- Ctrl+Shift+↓/↑ (and J/K) open the collapsed sidebar on the current chat, move one chat at a time, and stop at the first chat. Escape returns to the composer and closes the sidebar. Plain `j` still types.
+- Ctrl+Cmd+J/K, Ctrl+Shift+↓/↑ and Ctrl+Shift+J/K open the collapsed sidebar on the current chat, move one chat at a time, and stop at the first chat. Escape returns to the composer and closes the sidebar. Plain `j` still types.
 - Enter on a focused sidebar chat opens it, closes the sidebar, and leaves the cursor in the opened chat's composer.
 
 Artifacts land in `e2e/artifacts/` (gitignored, since they contain conversation text). `result.json` has every check with the ChatGPT build id. `edit-mode.png` shows the edit field after the shortcut and a typed `!`, with the caret at the end.
 
 Known quirks of the harness.
 
-- Helium swallows `Ctrl+J`/`Ctrl+K` before the page sees them, so the J/K steps dispatch a synthetic `keydown` and the rest of the sidebar flow uses real arrow-key presses.
+- Helium swallows `Ctrl+J`/`Ctrl+K` before the page sees them, so the `Ctrl+Shift+J/K` steps dispatch a synthetic `keydown`. Every other key in the sidebar flow is a real CDP key press.
 - After a chat switch ChatGPT detaches and remounts the composer and calls `blur()` on it each time. For 3 seconds after Enter the script refocuses the composer whenever focus falls back to `<body>`. During the switch the page briefly holds two composers, a hidden one and the visible one, so the script always targets the visible one.
 
 - ChatGPT answers HTTP 429 on `/backend-api/conversations/<id>` when a conversation is reloaded many times in a short period. A normal run loads the conversation once. `load` retries with backoff if the page shows "Could not load this ChatGPT conversation".
