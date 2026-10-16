@@ -24,7 +24,23 @@ A Manifest V3 Chrome extension that adds keyboard shortcuts to https://chatgpt.c
 
 The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first, then Recents. They stop at the first and last chat.
 
-In Helium, `Ctrl+J` and `Ctrl+K` never reach the page, with or without Shift, so use the arrow versions there. `Ctrl+Shift+N`, `Alt+Shift+J` and `Ctrl+Alt+J` do get through.
+In Helium, `Ctrl+J` and `Ctrl+K` never reach the page, with or without Shift. To keep the vim keys, remap them before the browser sees them. This [Karabiner-Elements](https://karabiner-elements.pqrs.org/) rule turns `Ctrl+Shift+J/K` into `Ctrl+Shift+↓/↑` only while Helium or Chrome is in front. Add it to `complex_modifications.rules` in `~/.config/karabiner/karabiner.json`.
+
+```json
+{
+  "description": "Browsers: Ctrl+Shift+J/K to Ctrl+Shift+Down/Up (ChatGPT Shortcuts sidebar)",
+  "manipulators": [
+    { "type": "basic",
+      "from": { "key_code": "j", "modifiers": { "mandatory": ["control", "shift"] } },
+      "to": [{ "key_code": "down_arrow", "modifiers": ["left_control", "left_shift"] }],
+      "conditions": [{ "type": "frontmost_application_if", "bundle_identifiers": ["^net\\.imput\\.helium$", "^com\\.google\\.Chrome$"] }] },
+    { "type": "basic",
+      "from": { "key_code": "k", "modifiers": { "mandatory": ["control", "shift"] } },
+      "to": [{ "key_code": "up_arrow", "modifiers": ["left_control", "left_shift"] }],
+      "conditions": [{ "type": "frontmost_application_if", "bundle_identifiers": ["^net\\.imput\\.helium$", "^com\\.google\\.Chrome$"] }] }
+  ]
+}
+```
 
 `ArrowUp` is left alone when the composer has text, when any of Ctrl, Cmd, Alt or Shift is held, while an IME is composing, when the thread has no user messages, and inside an edit field. If your last message is already being edited, `ArrowUp` refocuses that edit field instead of opening the previous message.
 
