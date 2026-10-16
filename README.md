@@ -24,7 +24,7 @@ A Manifest V3 Chrome extension that adds keyboard shortcuts to https://chatgpt.c
 
 The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first, then Recents. They stop at the first and last chat.
 
-`Ctrl+Cmd+J/K` is the main vim binding because it reaches the page in every browser tested. Helium swallows `Ctrl+J` and `Ctrl+K` before the page sees them, with or without Shift, so `Ctrl+Shift+J/K` only works in browsers that pass it through.
+`Ctrl+Cmd+J/K` is the main vim binding because it reaches the page in Helium, where `Ctrl+J` and `Ctrl+K` do not, and no browser or macOS shortcut uses it. `Ctrl+Shift+J/K` is bound too and works in browsers that pass it through.
 
 `ArrowUp` is left alone when the composer has text, when any of Ctrl, Cmd, Alt or Shift is held, while an IME is composing, when the thread has no user messages, and inside an edit field. If your last message is already being edited, `ArrowUp` refocuses that edit field instead of opening the previous message.
 
