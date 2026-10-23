@@ -7,6 +7,8 @@
     sidebarChat: 'nav[aria-label="Chat history"] a[href*="/c/"]',
     showSidebar: 'button[aria-label="Show sidebar"]',
     hideSidebar: 'button[aria-label="Hide sidebar"]',
+    threadMenu: 'header[data-app-shell-titlebar] button[aria-label="More"]',
+    menuItem: '[role="menuitem"]',
   };
 
   const MODIFIERS = ['ctrlKey', 'metaKey', 'altKey', 'shiftKey'];
@@ -103,6 +105,25 @@
     focusComposer();
   };
 
+  const inConversation = () => /\/c\/[^/]+/.test(location.pathname);
+
+  const openThreadMenu = (trigger) => {
+    const init = { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' };
+    trigger.dispatchEvent(new PointerEvent('pointerdown', init));
+    trigger.dispatchEvent(new PointerEvent('pointerup', init));
+  };
+
+  const archiveThread = async () => {
+    const trigger = firstVisible(SELECTORS.threadMenu);
+    if (!trigger) return;
+    if (trigger.getAttribute('aria-expanded') !== 'true') openThreadMenu(trigger);
+    const archive = await waitFor(() =>
+      [...document.querySelectorAll(SELECTORS.menuItem)].find((m) => m.innerText.trim() === 'Archive'),
+    );
+    if (archive) archive.click();
+    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  };
+
   const inSidebar = () => Boolean(focusedSidebarChat());
   const SIDEBAR_MODS = ['ctrlKey', 'shiftKey'];
 
@@ -118,6 +139,7 @@
     { code: 'KeyK', mods: SIDEBAR_MODS, run: moveInSidebar(-1) },
     { key: 'ArrowDown', mods: SIDEBAR_MODS, run: moveInSidebar(1) },
     { key: 'ArrowUp', mods: SIDEBAR_MODS, run: moveInSidebar(-1) },
+    { code: 'KeyA', mods: ['ctrlKey', 'shiftKey'], when: inConversation, run: archiveThread },
     { key: 'Enter', when: inSidebar, run: openFocusedChat },
     { key: 'Escape', when: inSidebar, run: leaveSidebar },
   ];

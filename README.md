@@ -21,10 +21,15 @@ A Manifest V3 Chrome extension that adds keyboard shortcuts to https://chatgpt.c
 | `Ctrl+Cmd+K`, `Ctrl+Shift+↑` or `Ctrl+Shift+K` | Anywhere | Moves to the previous chat in the sidebar. |
 | `Enter` | A sidebar chat is focused | Opens that chat, closes the sidebar if the shortcut opened it, and puts the cursor in the composer. |
 | `Escape` | A sidebar chat is focused | Goes back to the composer and closes the sidebar if the shortcut opened it. |
+| `Ctrl+Shift+A` | You are in a saved conversation (`/c/<id>`) | Archives the conversation. ChatGPT then drops it from the sidebar and opens a new chat. |
 
 The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first, then Recents. They stop at the first and last chat.
 
 `Ctrl+Cmd+J/K` is the main vim binding because it reaches the page in Helium, where `Ctrl+J` and `Ctrl+K` do not, and no browser or macOS shortcut uses it. `Ctrl+Shift+J/K` is bound too and works in browsers that pass it through.
+
+`Ctrl+Shift+A` opens the conversation's `⋯` menu in the header and picks **Archive**, so ChatGPT does the archiving and updates its own UI. Outside a conversation, such as the home page or a temporary chat that has no `/c/` URL yet, the key passes through to the page untouched. If the menu has no Archive item, the script closes the menu and does nothing else.
+
+Surfingkeys maps `<Ctrl-a>` in insert mode and swallows it before any other script sees it. A real `Ctrl+Shift+A` reaches the page as key `A`, which Surfingkeys does not map, so the shortcut still works with Surfingkeys installed.
 
 `ArrowUp` is left alone when the composer has text, when any of Ctrl, Cmd, Alt or Shift is held, while an IME is composing, when the thread has no user messages, and inside an edit field. If your last message is already being edited, `ArrowUp` refocuses that edit field instead of opening the previous message.
 
@@ -54,6 +59,8 @@ All page selectors live in `SELECTORS` at the top of `content.js`. They were rea
 | `editButton` | `button[aria-label="Edit message"]` | The pencil. It is always in the DOM and only hidden with `opacity-0` until hover, so `click()` works without synthesizing hover events. |
 | `sidebarChat` | `nav[aria-label="Chat history"] a[href*="/c/"]` | Every chat row is a link inside the Chat history nav. The links stay in the DOM when the sidebar is collapsed, so the script only counts visible ones. The open chat has `aria-current="page"`. |
 | `showSidebar`, `hideSidebar` | `button[aria-label="Show sidebar"]`, `button[aria-label="Hide sidebar"]` | Several copies exist and only one is visible at a time, so the script clicks the visible one. |
+| `threadMenu` | `header[data-app-shell-titlebar] button[aria-label="More"]` | The `⋯` button in the conversation header. Radix opens it on `pointerdown`, not `click`, so the script dispatches a pointer event. |
+| `menuItem` | `[role="menuitem"]` | The menu rows. The script matches the one whose text is exactly `Archive`. |
 | `editor` | `[contenteditable="true"]` inside the user turn | The edit field is a ProseMirror `contenteditable`, not a `textarea`. ChatGPT does not focus it, so the script does. |
 
 When ChatGPT changes its DOM, update `SELECTORS` and rerun the E2E below.
@@ -81,6 +88,15 @@ It checks eight behaviors.
 - ArrowUp on a new chat with no messages is a no-op and is not default-prevented.
 - Ctrl+Cmd+J/K, Ctrl+Shift+↓/↑ and Ctrl+Shift+J/K open the collapsed sidebar on the current chat, move one chat at a time, and stop at the first chat. Escape returns to the composer and closes the sidebar. Plain `j` still types.
 - Enter on a focused sidebar chat opens it, closes the sidebar, and leaves the cursor in the opened chat's composer.
+
+`e2e/archive.mjs` checks `Ctrl+Shift+A`. It sends one throwaway message per run ("archive shortcut e2e N, reply with just ok") to create a chat it owns, presses `Ctrl+Shift+A` in that chat's composer, and checks that the page leaves the chat, the chat drops out of the sidebar, no menu stays open, and `GET /backend-api/conversation/<id>` reports `is_archived: true`. Then it deletes the chat. It also checks that `Ctrl+Shift+A` on the home page does nothing and is not default-prevented. It refuses to run if the home composer holds a draft, because it would send it.
+
+```sh
+node e2e/archive.mjs                 # 3 archive runs
+ARCHIVE_RUNS=1 node e2e/archive.mjs
+```
+
+It writes `archive-result.json` and `archive-after.png` (the page right after the first archive). The harness sends key `A` with Ctrl and Shift held, as a real keyboard does. The helium-cdp `key ctrl+shift+a` command sends lowercase `a` instead, which Surfingkeys swallows.
 
 Artifacts land in `e2e/artifacts/` (gitignored, since they contain conversation text). `result.json` has every check with the ChatGPT build id. `edit-mode.png` shows the edit field after the shortcut and a typed `!`, with the caret at the end.
 
