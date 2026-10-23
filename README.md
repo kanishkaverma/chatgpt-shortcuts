@@ -21,7 +21,7 @@ A Manifest V3 Chrome extension that adds keyboard shortcuts to https://chatgpt.c
 | `Ctrl+Cmd+K`, `Ctrl+Shift+↑` or `Ctrl+Shift+K` | Anywhere | Moves to the previous chat in the sidebar. |
 | `Enter` | A sidebar chat is focused | Opens that chat, closes the sidebar if the shortcut opened it, and puts the cursor in the composer. |
 | `Escape` | A sidebar chat is focused | Goes back to the composer and closes the sidebar if the shortcut opened it. |
-| `Ctrl+Shift+A` | You are in a saved conversation (`/c/<id>`) | Archives the conversation. ChatGPT then drops it from the sidebar and opens a new chat. |
+| `Ctrl+Shift+A` (configurable) | You are in a saved conversation (`/c/<id>`) | Archives the conversation. ChatGPT then drops it from the sidebar and opens a new chat. |
 
 The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first, then Recents. They stop at the first and last chat.
 
@@ -29,7 +29,18 @@ The sidebar shortcuts walk every chat the sidebar shows, in order: Pinned first,
 
 `Ctrl+Shift+A` opens the conversation's `⋯` menu in the header and picks **Archive**, so ChatGPT does the archiving and updates its own UI. Outside a conversation, such as the home page or a temporary chat that has no `/c/` URL yet, the key passes through to the page untouched. If the menu has no Archive item, the script closes the menu and does nothing else.
 
-Surfingkeys maps `<Ctrl-a>` in insert mode and swallows it before any other script sees it. A real `Ctrl+Shift+A` reaches the page as key `A`, which Surfingkeys does not map, so the shortcut still works with Surfingkeys installed.
+### Change the archive shortcut
+
+Click the extension's toolbar icon (or open its **Options** page), click the shortcut, and press the keys you want. The new keys work right away in every open chatgpt.com tab, with no reload. **Reset to default** brings back `Ctrl+Shift+A`. The setting is stored in `chrome.storage.sync`, so it follows your browser profile.
+
+The settings page refuses two kinds of keys.
+
+- Keys without Ctrl, Option/Alt or Cmd, such as `A` or `Shift+A`, because they would stop you typing that letter.
+- The sidebar keys (`Ctrl+Cmd+J/K`, `Ctrl+Shift+J/K`, `Ctrl+Shift+↑/↓`).
+
+Holding only modifiers keeps it waiting, and `Escape` cancels. If the stored value is ever unreadable, the extension falls back to `Ctrl+Shift+A`. Keys the browser keeps for itself, such as `Cmd+T` or `Cmd+W`, never reach the page, so they cannot be recorded. Shortcuts match the physical key (`KeyboardEvent.code`), so `Option` combinations on a Mac still work even though they change the typed character.
+
+Surfingkeys maps `<Ctrl-a>` in insert mode and swallows it before any other script sees it. A real `Ctrl+Shift+A` reaches the page as key `A`, which Surfingkeys does not map, so the shortcut still works with Surfingkeys installed. If you pick a key that Surfingkeys maps in insert mode, it will swallow that key the same way.
 
 `ArrowUp` is left alone when the composer has text, when any of Ctrl, Cmd, Alt or Shift is held, while an IME is composing, when the thread has no user messages, and inside an edit field. If your last message is already being edited, `ArrowUp` refocuses that edit field instead of opening the previous message.
 
@@ -39,14 +50,16 @@ Append one object to `SHORTCUTS` in `content.js`.
 
 ```js
 {
-  key: 'k',
+  code: 'KeyK',
   mods: ['metaKey', 'shiftKey'],
   when: (e) => true,
   run: (e) => { /* ... */ },
 }
 ```
 
-`key` is `KeyboardEvent.key`. `mods` is the exact set of modifiers that must be held (default none). `when` decides if the shortcut applies to this event. `run` does the work, and the dispatcher calls `preventDefault()` before it. The shortcut is a capture-phase `keydown` listener, so it runs before ProseMirror sees the key.
+`code` is `KeyboardEvent.code`; use `key` (`KeyboardEvent.key`) instead for keys like `ArrowUp` with no modifiers. `mods` is the exact set of modifiers that must be held (default none). `when` decides if the shortcut applies to this event. `run` does the work, and the dispatcher calls `preventDefault()` before it. The shortcut is a capture-phase `keydown` listener, so it runs before ProseMirror sees the key.
+
+`keys.js` holds what the content script and the settings page share: the default archive keys, the sidebar keys, the key labels, and the rules for which keys are allowed. Manifest V3 content scripts cannot import modules, so `keys.js` is loaded first and sets `globalThis.shortcutKeys`.
 
 ## Selectors
 
@@ -67,7 +80,7 @@ When ChatGPT changes its DOM, update `SELECTORS` and rerun the E2E below.
 
 ## E2E verification
 
-`e2e/run.mjs` drives the real, logged-in chatgpt.com in Helium over CDP. It opens its own tab, runs `content.js` in an isolated world the way Chrome does for extensions, presses keys with trusted CDP input events, asserts on the DOM, and closes the tab. It sends no messages.
+`e2e/run.mjs` drives the real, logged-in chatgpt.com in Helium over CDP. It loads this folder into Helium as an unpacked extension (CDP `Extensions.loadUnpacked`, which also installs it in your profile), opens its own tab, waits for the content script to mark `<html data-chatgpt-shortcuts-archive>`, presses keys with trusted CDP input events, asserts on the DOM, and closes the tab. It sends no messages.
 
 Requirements are Helium running with `--remote-debugging-port=9223`, a logged-in chatgpt.com session, and the `helium-cdp` skill (set `CDP=/path/to/cdp.mjs` to override its location).
 
@@ -76,7 +89,7 @@ node e2e/run.mjs
 CONVERSATION_URL=https://chatgpt.com/c/<id> node e2e/run.mjs
 ```
 
-The conversation needs at least 2 user messages and an empty composer draft. The default is the first conversation in the sidebar. The run fails instead of deleting a draft it did not create.
+The conversation needs at least 2 user messages, an empty composer draft, and a row in the sidebar. The default is the first conversation in the sidebar. The run fails instead of deleting a draft it did not create.
 
 It checks eight behaviors.
 
@@ -89,14 +102,32 @@ It checks eight behaviors.
 - Ctrl+Cmd+J/K, Ctrl+Shift+↓/↑ and Ctrl+Shift+J/K open the collapsed sidebar on the current chat, move one chat at a time, and stop at the first chat. Escape returns to the composer and closes the sidebar. Plain `j` still types.
 - Enter on a focused sidebar chat opens it, closes the sidebar, and leaves the cursor in the opened chat's composer.
 
-`e2e/archive.mjs` checks `Ctrl+Shift+A`. It sends one throwaway message per run ("archive shortcut e2e N, reply with just ok") to create a chat it owns, presses `Ctrl+Shift+A` in that chat's composer, and checks that the page leaves the chat, the chat drops out of the sidebar, no menu stays open, and `GET /backend-api/conversation/<id>` reports `is_archived: true`. Then it deletes the chat. It also checks that `Ctrl+Shift+A` on the home page does nothing and is not default-prevented. It refuses to run if the home composer holds a draft, because it would send it.
+`e2e/archive.mjs` checks `Ctrl+Shift+A`. It sends one throwaway message per run ("archive shortcut e2e N, reply with just ok") to create a chat it owns, presses `Ctrl+Shift+A` in that chat's composer, and checks that the page leaves the chat, the chat drops out of the sidebar, no menu stays open, and `GET /backend-api/conversation/<id>` reports `is_archived: true`. Then it deletes the chat. It clears any saved archive key for the run and puts it back afterwards. It also checks that `Ctrl+Shift+A` on the home page does nothing and is not default-prevented. It refuses to run if the home composer holds a draft, because it would send it.
 
 ```sh
 node e2e/archive.mjs                 # 3 archive runs
 ARCHIVE_RUNS=1 node e2e/archive.mjs
 ```
 
-It writes `archive-result.json` and `archive-after.png` (the page right after the first archive). The harness sends key `A` with Ctrl and Shift held, as a real keyboard does. The helium-cdp `key ctrl+shift+a` command sends lowercase `a` instead, which Surfingkeys swallows.
+It writes `archive-result.json` and `archive-after.png` (the page right after the first archive).
+
+`e2e/config.mjs` checks the configurable key. It drives the real settings page and one throwaway chat, and saves and restores whatever archive key you had.
+
+```sh
+node e2e/config.mjs
+```
+
+It checks these ways the setting could break.
+
+- The settings page shows `Ctrl+Shift+A` when nothing is saved.
+- A lone modifier keeps recording and saves nothing. `Shift+A`, plain `A` and `Ctrl+Cmd+J` are rejected with a message and save nothing. `Escape` cancels.
+- `Ctrl+Option+X` is saved, shown, default-prevented on the settings page, and still shown after a reload.
+- A freshly loaded ChatGPT page uses the saved key, and the old `Ctrl+Shift+A` no longer archives and is not default-prevented.
+- Saving `Option+Shift+Z` reaches an already open ChatGPT tab with no reload. The replaced key stops archiving, and the new key archives the chat (checked on the server).
+- A corrupt stored value falls back to `Ctrl+Shift+A` on both the page and the settings page.
+- **Reset to default** clears the setting and reaches the open ChatGPT tab.
+
+It writes `config-result.json`, `config-after-archive.png` and `config-settings.png`. The harness sends key `A` with Ctrl and Shift held, as a real keyboard does. The helium-cdp `key ctrl+shift+a` command sends lowercase `a` instead, which Surfingkeys swallows.
 
 Artifacts land in `e2e/artifacts/` (gitignored, since they contain conversation text). `result.json` has every check with the ChatGPT build id. `edit-mode.png` shows the edit field after the shortcut and a typed `!`, with the caret at the end.
 
@@ -106,5 +137,7 @@ Known quirks of the harness.
 - After a chat switch ChatGPT detaches and remounts the composer and calls `blur()` on it each time. For 3 seconds after Enter the script refocuses the composer whenever focus falls back to `<body>`. During the switch the page briefly holds two composers, a hidden one and the visible one, so the script always targets the visible one.
 
 - ChatGPT answers HTTP 429 on `/backend-api/conversations/<id>` when a conversation is reloaded many times in a short period. A normal run loads the conversation once. `load` retries with backoff if the page shows "Could not load this ChatGPT conversation".
-- Per-tab commands go straight to the helium-cdp daemon socket. On this machine the helium-cdp CLI process is killed with SIGKILL when its arguments pass about 1000 characters, and `content.js` is longer than that.
+- ChatGPT now restores your last message into the composer itself on `ArrowUp` during IME composition. The composition check therefore watches the extension's own listener and clears the draft ChatGPT leaves.
+- ChatGPT's sidebar can miss a chat that was just unarchived until its cache refreshes. The sidebar checks need the open chat to have a row, so pick another conversation if `first press focuses the current chat` reports `current=undefined`.
+- Per-tab commands go straight to the helium-cdp daemon socket. On this machine the helium-cdp CLI process is killed with SIGKILL when its arguments pass about 1000 characters, and `content.js` is longer than that. Shared harness code lives in `e2e/lib.mjs`.
 - A global pre-commit hook strips code comments in this repo, so reasoning lives in this README.

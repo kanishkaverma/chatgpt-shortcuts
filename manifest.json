@@ -1,18 +1,26 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Shortcuts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keyboard shortcuts for chatgpt.com.",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
       "matches": [
         "https://chatgpt.com/*"
       ],
       "js": [
+        "keys.js",
         "content.js"
       ]
     }
   ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -26,6 +34,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "ChatGPT Shortcuts"
+    "default_title": "ChatGPT Shortcuts",
+    "default_popup": "options.html"
   }
 }

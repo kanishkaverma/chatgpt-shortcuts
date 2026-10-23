@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadExtension } from './lib.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'e2e', 'artifacts');
 const CDP = process.env.CDP ?? join(process.env.HOME, '.pi/agent/skills/helium-cdp/scripts/cdp.mjs');
-const contentScript = readFileSync(join(root, 'content.js'), 'utf8');
 
 const COMPOSER = '[data-composer-input] [contenteditable="true"]';
 const USER_TURN = '[data-content-search-unit-key$=":user"]';
@@ -86,11 +86,12 @@ const lastMessageText = () =>
 
 const resetKeydowns = () => page(() => ((window.__keydowns.length = 0), true));
 
-const injectContentScript = async () => {
-  const frameId = (await raw('Page.getFrameTree')).frameTree.frame.id;
-  const { executionContextId } = await raw('Page.createIsolatedWorld', { frameId, worldName: 'chatgpt-shortcuts' });
-  const run = await raw('Runtime.evaluate', { expression: contentScript, contextId: executionContextId });
-  if (run.exceptionDetails) throw new Error(`content.js threw: ${JSON.stringify(run.exceptionDetails)}`);
+const waitForContentScript = async () => {
+  for (let i = 0; i < 50; i++) {
+    if (await page(() => document.documentElement.dataset.chatgptShortcutsArchive ?? null)) return;
+    await sleep(200);
+  }
+  throw new Error('the extension content script never attached');
 };
 
 const NEW_CHAT_URL = 'https://chatgpt.com/?temporary-chat=true';
@@ -107,7 +108,7 @@ const load = async (url, waitFor) => {
     console.log(`page not ready (attempt ${attempt}), retrying in ${attempt * 20}s`);
     await sleep(attempt * 20000);
   }
-  await injectContentScript();
+  await waitForContentScript();
   await page(() => {
     window.__keydowns = [];
     window.addEventListener('keydown', (e) =>
@@ -310,12 +311,19 @@ const scenarios = [
       const notPrevented = await page((composerSel) => {
         const composer = document.querySelector(composerSel);
         composer.focus();
-        return composer.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'ArrowUp', isComposing: true, bubbles: true, cancelable: true }),
-        );
+        let preventedByExtension = null;
+        const probe = (e) => (preventedByExtension = e.defaultPrevented);
+        document.addEventListener('keydown', probe, true);
+        composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', isComposing: true, bubbles: true, cancelable: true }));
+        document.removeEventListener('keydown', probe, true);
+        return preventedByExtension === false;
       }, COMPOSER);
       await sleep(300);
       check(S, 'ArrowUp while isComposing does nothing', notPrevented && (await snapshot()).editorCount === 0);
+      if ((await snapshot()).composerText) {
+        await cdp('click', COMPOSER);
+        await clearFocusedField();
+      }
     },
   },
 
@@ -433,6 +441,7 @@ const scenarios = [
   },
 ];
 
+await loadExtension();
 const anyTab = cli('list').split('\n')[0].slice(0, 8);
 const { targetId } = JSON.parse(cli('evalraw', anyTab, 'Target.createTarget', JSON.stringify({ url: 'https://chatgpt.com/' })));
 cli('list');

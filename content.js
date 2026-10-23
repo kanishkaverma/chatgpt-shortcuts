@@ -1,4 +1,6 @@
 (() => {
+  const { MODIFIERS, DEFAULT_ARCHIVE, SIDEBAR_KEYS, label, fromStorage } = shortcutKeys;
+
   const SELECTORS = {
     composer: '[data-composer-input] [contenteditable="true"]',
     userTurn: '[data-content-search-unit-key$=":user"]',
@@ -10,8 +12,6 @@
     threadMenu: 'header[data-app-shell-titlebar] button[aria-label="More"]',
     menuItem: '[role="menuitem"]',
   };
-
-  const MODIFIERS = ['ctrlKey', 'metaKey', 'altKey', 'shiftKey'];
 
   const lastUserTurn = () => [...document.querySelectorAll(SELECTORS.userTurn)].at(-1);
 
@@ -125,7 +125,16 @@
   };
 
   const inSidebar = () => Boolean(focusedSidebarChat());
-  const SIDEBAR_MODS = ['ctrlKey', 'shiftKey'];
+
+  const archive = { ...DEFAULT_ARCHIVE, when: inConversation, run: archiveThread };
+  const applyArchiveKeys = (stored) => {
+    Object.assign(archive, fromStorage(stored));
+    document.documentElement.dataset.chatgptShortcutsArchive = label(archive);
+  };
+  chrome.storage.sync.get('archive').then(({ archive: stored }) => applyArchiveKeys(stored));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && 'archive' in changes) applyArchiveKeys(changes.archive.newValue);
+  });
 
   const SHORTCUTS = [
     {
@@ -133,13 +142,8 @@
       when: (e) => isEmptyComposer(e.target) && Boolean(lastUserTurn()),
       run: editLastMessage,
     },
-    { code: 'KeyJ', mods: ['ctrlKey', 'metaKey'], run: moveInSidebar(1) },
-    { code: 'KeyK', mods: ['ctrlKey', 'metaKey'], run: moveInSidebar(-1) },
-    { code: 'KeyJ', mods: SIDEBAR_MODS, run: moveInSidebar(1) },
-    { code: 'KeyK', mods: SIDEBAR_MODS, run: moveInSidebar(-1) },
-    { key: 'ArrowDown', mods: SIDEBAR_MODS, run: moveInSidebar(1) },
-    { key: 'ArrowUp', mods: SIDEBAR_MODS, run: moveInSidebar(-1) },
-    { code: 'KeyA', mods: ['ctrlKey', 'shiftKey'], when: inConversation, run: archiveThread },
+    ...SIDEBAR_KEYS.map(({ code, mods, step }) => ({ code, mods, run: moveInSidebar(step) })),
+    archive,
     { key: 'Enter', when: inSidebar, run: openFocusedChat },
     { key: 'Escape', when: inSidebar, run: leaveSidebar },
   ];
